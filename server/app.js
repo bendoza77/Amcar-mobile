@@ -112,6 +112,12 @@ app.use(cookieParser());
 // Uploaded avatars are served straight from disk
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// Health check / landing route so cloud hosts (Render etc.) see the
+// service as up and a bare visit to the URL doesn't return a 404.
+app.get("/", (req, res) => {
+    res.json({ success: true, service: "Amcar API", status: "ok" });
+});
+
 app.use("/api/v1/auth", authLimiter, authRouter);
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/mechanics", mechanicRouter);
