@@ -9,7 +9,6 @@ const { sendPushNotifications } = require("../utils/push.util");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const MAX_PHOTOS = 4;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
 
 /** True when the buffer starts like a real JPEG/PNG/WebP image. */
@@ -38,7 +37,7 @@ const existingUploadPath = (entry) => {
 
 /**
  * Normalises the admin form's `images` payload into a list of stored
- * references (max 4). Each entry is either an already-uploaded file
+ * references (no count cap). Each entry is either an already-uploaded file
  * (kept as a host-independent /uploads/... path on edit) or raw base64
  * from the gallery picker (written to disk under uploads/mechanics/ and
  * served statically). Paths are stored WITHOUT a host so they keep
@@ -56,7 +55,7 @@ const persistMechanicPhotos = async (mechanicId, images) => {
     await fs.mkdir(dir, { recursive: true });
 
     const urls = [];
-    for (let i = 0; i < images.length && urls.length < MAX_PHOTOS; i++) {
+    for (let i = 0; i < images.length; i++) {
         const entry = images[i];
         if (typeof entry !== "string" || !entry) continue;
 

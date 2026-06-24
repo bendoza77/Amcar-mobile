@@ -66,6 +66,11 @@ const userSchema = new mongoose.Schema({
         default: false
     },
 
+    phoneVerified: {
+        type: Boolean,
+        default: false
+    },
+
     // Expo push token — set from the app after the user grants
     // notification permission.
     expoPushToken: {

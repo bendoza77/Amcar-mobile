@@ -32,7 +32,7 @@ There is **no test suite** (the server `test` script is a stub) and **no linter 
 
 ## Environment & connectivity
 
-- **Server** needs `server/.env`: `MONGO_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `GOOGLE_CLIENT_ID`, `GOOGLE_MAPS_API_KEY`, `EMAIL_*` (Gmail SMTP for OTP), `ADMIN_EMAILS` (comma-separated; these emails are auto-promoted to `admin` on every request via `protect.middleware.js`).
+- **Server** needs `server/.env`: `MONGO_URI`, `JWT_SECRET`, `JWT_EXPIRES_IN`, `GOOGLE_CLIENT_ID`, `GOOGLE_MAPS_API_KEY`, `EMAIL_*` (Gmail SMTP for OTP), `ADMIN_EMAILS` (comma-separated; these emails are auto-promoted to `admin` on every request via `protect.middleware.js`), `FIREBASE_SERVICE_ACCOUNT` (the Firebase service-account JSON as a single-line string — used by `firebaseAdmin.util.js` to verify the ID token from phone-number sign-in; or set `GOOGLE_APPLICATION_CREDENTIALS` to a file path instead).
 - **Client API base URL** is resolved in `client/src/config/index.js` → `resolveApiUrl()`, in priority order:
   1. `EXPO_PUBLIC_API_URL` from `client/.env` (e.g. a Cloudflare tunnel) — **overrides everything, including production**. `EXPO_PUBLIC_*` vars are inlined at bundle time, so editing `.env` requires `expo start -c`.
   2. `PRODUCTION_API_URL` constant when `!__DEV__`.
