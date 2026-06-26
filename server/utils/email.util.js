@@ -13,7 +13,13 @@ const transporter = () =>
             // Gmail shows App Passwords in groups ("abcd efgh ijkl mnop");
             // strip whitespace so a direct paste authenticates either way.
             pass: (process.env.EMAIL_PASS || "").replace(/\s+/g, "")
-        }
+        },
+        // Cloud hosts (Render etc.) often throttle/block outbound SMTP, which
+        // makes the connect hang indefinitely and stalls the whole request.
+        // Fail fast instead so the user gets a real error in seconds.
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 15_000
     });
 
 const sendOtpEmail = async (to, code) => {
