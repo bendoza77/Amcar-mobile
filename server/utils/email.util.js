@@ -1,26 +1,20 @@
-const nodemailer = require("nodemailer");
+// OTP email delivery via Resend's HTTPS API.
+//
+// We send over HTTPS (api.resend.com:443) rather than SMTP because cloud
+// hosts like Render block outbound SMTP ports (25/465/587), which made the
+// old nodemailer/Gmail path hang and fail on the deployed server. HTTPS is
+// never blocked, so this works both locally and on Render.
 
-const isConfigured = () =>
-    Boolean(process.env.EMAIL_HOST && process.env.EMAIL_USER && process.env.EMAIL_PASS);
+const RESEND_API_URL = "https://api.resend.com/emails";
 
-const transporter = () =>
-    nodemailer.createTransport({
-        host: process.env.EMAIL_HOST,
-        port: Number(process.env.EMAIL_PORT) || 587,
-        secure: Number(process.env.EMAIL_PORT) === 465,
-        auth: {
-            user: process.env.EMAIL_USER,
-            // Gmail shows App Passwords in groups ("abcd efgh ijkl mnop");
-            // strip whitespace so a direct paste authenticates either way.
-            pass: (process.env.EMAIL_PASS || "").replace(/\s+/g, "")
-        },
-        // Cloud hosts (Render etc.) often throttle/block outbound SMTP, which
-        // makes the connect hang indefinitely and stalls the whole request.
-        // Fail fast instead so the user gets a real error in seconds.
-        connectionTimeout: 10_000,
-        greetingTimeout: 10_000,
-        socketTimeout: 15_000
-    });
+// Resend won't send from an unverified address. Until you verify your own
+// domain in the Resend dashboard, you must use their shared sender
+// `onboarding@resend.dev` — and it can only deliver to the email you signed
+// up to Resend with. To send OTPs to ANY user, verify a domain and set
+// RESEND_FROM to an address on it (e.g. "Amcar <noreply@yourdomain.com>").
+const FROM = process.env.RESEND_FROM || "Amcar <onboarding@resend.dev>";
+
+const isConfigured = () => Boolean(process.env.RESEND_API_KEY);
 
 const sendOtpEmail = async (to, code) => {
     const html = `
@@ -39,13 +33,29 @@ const sendOtpEmail = async (to, code) => {
         </div>
     </div>`;
 
-    await transporter().sendMail({
-        from: process.env.EMAIL_FROM || `Amcar <${process.env.EMAIL_USER}>`,
-        to,
-        subject: `${code} is your Amcar code`,
-        text: `Your Amcar verification code is ${code}. It expires in 10 minutes.`,
-        html
+    const res = await fetch(RESEND_API_URL, {
+        method: "POST",
+        headers: {
+            Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            from: FROM,
+            to: [to],
+            subject: `${code} is your Amcar code`,
+            text: `Your Amcar verification code is ${code}. It expires in 10 minutes.`,
+            html
+        }),
+        // Fail fast rather than holding the request open if Resend is slow.
+        signal: AbortSignal.timeout(15_000)
     });
+
+    if (!res.ok) {
+        // Surface Resend's error body (bad key, unverified recipient, etc.)
+        // so it lands in the server logs instead of a generic failure.
+        const detail = await res.text().catch(() => "");
+        throw new Error(`Resend API ${res.status}: ${detail}`);
+    }
 };
 
 module.exports = { sendOtpEmail, isConfigured };
