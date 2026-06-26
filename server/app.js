@@ -26,6 +26,13 @@ const globalErrorHandler = require("./controllers/error.controller");
 const AppError = require("./utils/AppError.util");
 
 const app = express();
+
+// Render (and most cloud hosts) put a reverse proxy in front of the app
+// that adds the X-Forwarded-For header. Trust the first proxy hop so
+// express-rate-limit can read the real client IP instead of throwing
+// ERR_ERL_UNEXPECTED_X_FORWARDED_FOR.
+app.set("trust proxy", 1);
+
 const server = http.createServer(app);
 
 // Socket.io rides on the same HTTP server; controllers reach it
