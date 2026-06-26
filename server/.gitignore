@@ -1,4 +1,7 @@
 node_modules
 .env
-uploads
+# Ship curated mechanic catalogue photos with the deploy (Render's disk is
+# ephemeral, so committed files are the only ones guaranteed present after a
+# redeploy). User-uploaded avatars stay ignored — they're not part of the build.
+uploads/avatars
 firebase-service-account.json
