@@ -1,10 +1,9 @@
-const path = require("path");
-const fs = require("fs/promises");
 const { default: mongoose } = require("mongoose");
 const User = require("../models/user.model");
 const catchAsync = require("../utils/catchAsync.util");
 const AppError = require("../utils/AppError.util");
 const { publicUser } = require("./auth.controller");
+const { uploadImage, isConfigured: cloudinaryConfigured } = require("../utils/cloudinary.util");
 
 const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -118,11 +117,12 @@ const updateMe = catchAsync(async (req, res, next) => {
 
 /**
  * POST /users/me/avatar  { image: <base64> }
- * Stores the avatar on this server (uploads/avatars/<id>.jpg, served
- * statically) and saves a host-independent path on the user — no host
- * is baked in, so it keeps working when the server's IP/tunnel changes
- * (the client re-bases it on the live API URL). One file per user —
- * re-uploads overwrite; the ?v= query busts client image caches.
+ * Uploads the avatar to Cloudinary and stores the absolute secure_url on
+ * the user, so it shows identically on phone and web and survives Render
+ * wiping the local disk on redeploy. One image per user: a stable
+ * public_id (the user id) means re-uploads overwrite in place, and
+ * `invalidate` (in the util) busts the CDN cache so the new photo shows
+ * immediately.
  */
 const uploadAvatar = catchAsync(async (req, res, next) => {
     const { image } = req.body;
@@ -140,20 +140,20 @@ const uploadAvatar = catchAsync(async (req, res, next) => {
     if (buffer.length > MAX_AVATAR_BYTES) {
         return next(new AppError("Image is too large (max 5 MB).", 413));
     }
-    // Magic-byte sniff — the file is written to disk and served back,
-    // so only real image bytes are allowed regardless of what the
-    // data-URL prefix claimed.
+    // Magic-byte sniff — only real image bytes are allowed regardless of
+    // what the data-URL prefix claimed.
     if (!looksLikeImage(buffer)) {
         return next(new AppError("Only JPEG, PNG or WebP images are allowed.", 400));
     }
+    if (!cloudinaryConfigured()) {
+        return next(new AppError("Image storage is not configured.", 500));
+    }
 
-    const dir = path.join(__dirname, "..", "uploads", "avatars");
-    await fs.mkdir(dir, { recursive: true });
+    const url = await uploadImage(buffer, {
+        folder: "amcar/avatars",
+        publicId: String(req.user._id)
+    });
 
-    const filename = `${req.user._id}.jpg`;
-    await fs.writeFile(path.join(dir, filename), buffer);
-
-    const url = `/uploads/avatars/${filename}?v=${Date.now()}`;
     const user = await User.findByIdAndUpdate(
         req.user._id,
         { avatar: url },

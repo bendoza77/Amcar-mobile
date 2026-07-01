@@ -1,11 +1,10 @@
-const path = require("path");
-const fs = require("fs/promises");
 const mongoose = require("mongoose");
 const Mechanic = require("../models/mechanic.model");
 const User = require("../models/user.model");
 const catchAsync = require("../utils/catchAsync.util");
 const AppError = require("../utils/AppError.util");
 const { sendPushNotifications } = require("../utils/push.util");
+const { uploadImage, isConfigured: cloudinaryConfigured } = require("../utils/cloudinary.util");
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -25,25 +24,27 @@ const looksLikeImage = (buffer) => {
 };
 
 /**
- * If `entry` already points at an uploaded file, return its
- * host-independent path (e.g. "/uploads/mechanics/x.jpg") — stripping
- * any host that an older record baked in. Returns null otherwise, so
- * the caller treats the entry as freshly picked base64.
+ * True when the entry is an already-stored reference we should keep as-is
+ * rather than re-upload:
+ *  - an absolute http(s) URL (a Cloudinary URL from a previous save or from
+ *    the website, or an external stock image), or
+ *  - a legacy host-independent "/uploads/..." disk path from before the
+ *    Cloudinary switch (kept so old records still render via the app's
+ *    re-basing; new uploads all go to Cloudinary).
  */
-const existingUploadPath = (entry) => {
-    const i = entry.indexOf("/uploads/");
-    return i === -1 ? null : entry.slice(i);
-};
+const isStoredReference = (entry) =>
+    /^https?:\/\//i.test(entry) || entry.includes("/uploads/");
 
 /**
  * Normalises the admin form's `images` payload into a list of stored
- * references (no count cap). Each entry is either an already-uploaded file
- * (kept as a host-independent /uploads/... path on edit) or raw base64
- * from the gallery picker (written to disk under uploads/mechanics/ and
- * served statically). Paths are stored WITHOUT a host so they keep
- * working when the server's IP/tunnel changes; the client re-bases them
- * on the live API URL. Returns undefined when the caller sent no
- * `images` field, so callers can leave photos untouched.
+ * references (no count cap). Each entry is either an already-stored URL
+ * (a Cloudinary URL or legacy /uploads path — kept unchanged on edit) or
+ * raw base64 from the gallery picker (uploaded to Cloudinary, its absolute
+ * secure_url stored). Storing absolute Cloudinary URLs means a photo added
+ * on the phone is identical to one added on the website and shows on both,
+ * and it survives Render wiping the local disk on redeploy. Returns
+ * undefined when the caller sent no `images` field, so callers can leave
+ * photos untouched.
  */
 const persistMechanicPhotos = async (mechanicId, images) => {
     if (images === undefined) return undefined;
@@ -51,22 +52,18 @@ const persistMechanicPhotos = async (mechanicId, images) => {
         throw new AppError("Photos must be a list.", 400);
     }
 
-    const dir = path.join(__dirname, "..", "uploads", "mechanics");
-    await fs.mkdir(dir, { recursive: true });
-
     const urls = [];
     for (let i = 0; i < images.length; i++) {
         const entry = images[i];
         if (typeof entry !== "string" || !entry) continue;
 
-        // Existing photo — keep only its host-independent path so it
-        // survives the server moving to a new IP/tunnel.
-        const existing = existingUploadPath(entry);
-        if (existing) {
-            urls.push(existing);
+        // Already stored (Cloudinary URL or legacy /uploads path) — keep it.
+        if (isStoredReference(entry)) {
+            urls.push(entry);
             continue;
         }
 
+        // Freshly picked photo (base64 / data URL) → validate and upload.
         const base64 = entry.replace(/^data:image\/\w+;base64,/, "");
         const buffer = Buffer.from(base64, "base64");
         if (!buffer.length) {
@@ -78,10 +75,12 @@ const persistMechanicPhotos = async (mechanicId, images) => {
         if (!looksLikeImage(buffer)) {
             throw new AppError("Only JPEG, PNG or WebP photos are allowed.", 400);
         }
+        if (!cloudinaryConfigured()) {
+            throw new AppError("Image storage is not configured.", 500);
+        }
 
-        const filename = `${mechanicId}-${urls.length}-${Date.now()}.jpg`;
-        await fs.writeFile(path.join(dir, filename), buffer);
-        urls.push(`/uploads/mechanics/${filename}`);
+        const secureUrl = await uploadImage(buffer, { folder: "amcar/mechanics" });
+        urls.push(secureUrl);
     }
 
     return urls;
